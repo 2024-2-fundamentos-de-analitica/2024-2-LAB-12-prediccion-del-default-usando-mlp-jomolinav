@@ -1,4 +1,3 @@
-
 # flake8: noqa: E501
 #
 # En este dataset se desea pronosticar el default (pago) del cliente el próximo
@@ -98,43 +97,40 @@
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
 
-#Librerias necesarias
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import os
+from glob import glob 
+from sklearn.neural_network import MLPClassifier
 import pandas as pd
 import gzip
 import pickle
 import json
-import os
-from glob import glob 
-
 from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from sklearn.model_selection import GridSearchCV
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
 
-#Paso previo. Cargar los datos
+
 def load_data():
 
-    dataframe_test = pd.read_csv(
+    test_data_csv = pd.read_csv(
         "./files/input/test_data.csv.zip",
         index_col=False,
         compression="zip",
     )
 
-    dataframe_train = pd.read_csv(
+    train_data_csv = pd.read_csv(
         "./files/input/train_data.csv.zip",
         index_col = False,
         compression ="zip",
     )
 
-    return dataframe_train, dataframe_test
+    return train_data_csv, test_data_csv
 
-#Paso 1.
-#Limpiar los datos
+
 def clean_data(df):
     df_copy = df.copy()
     df_copy = df_copy.rename(columns={'default payment next month' : "default"})
@@ -145,18 +141,15 @@ def clean_data(df):
     df_copy = df_copy.dropna()
     return df_copy
 
-# Paso 2.Dividir los dataset
 def split_data(df):
-    #X , Y
     return df.drop(columns=["default"]), df["default"]
     
     
-# Paso 3.Creación del pipeline
-def create_pipeline(x_train):
+def make_pipeline(x_train):
     categorical_features = ["SEX", "EDUCATION", "MARRIAGE"]
     numerical_features = [col for col in x_train.columns if col not in categorical_features]
 
-    preprocessor = ColumnTransformer(
+    pre_procesamiento = ColumnTransformer(
         transformers=[
             ('cat', OneHotEncoder(), categorical_features),
             ('scaler', StandardScaler(), numerical_features),
@@ -165,7 +158,7 @@ def create_pipeline(x_train):
 
 
     pipeline = Pipeline([
-        ("preprocessor", preprocessor),
+        ("pre_procesamiento", pre_procesamiento),
         ('feature_selection', SelectKBest(score_func=f_classif)),  
         ('pca', PCA()),
         ('classifier', MLPClassifier(max_iter=15000,random_state=21))
@@ -173,7 +166,6 @@ def create_pipeline(x_train):
 
     return pipeline
 
-# Paso 4.Optimización de hiperparametros
 def create_estimator(pipeline):
     param_grid = {
         "pca__n_components": [None],
@@ -181,21 +173,18 @@ def create_estimator(pipeline):
         "classifier__hidden_layer_sizes": [(50, 30, 40, 60)],
         "classifier__alpha": [0.26],
         'classifier__learning_rate_init': [0.001],
-    }
-   
+    }   
     grid_search = GridSearchCV(
         estimator=pipeline,           
         param_grid=param_grid,        
         cv=10,                       
         scoring='balanced_accuracy',
         n_jobs=-1,
-        refit=True 
-      
+        verbose=3,
+        refit=True      
     )
-
     return grid_search
     
-# Paso 5. Guardar el modelo
 def _create_output_directory(output_directory):
     if os.path.exists(output_directory):
         for file in glob(f"{output_directory}/*"):
@@ -205,13 +194,10 @@ def _create_output_directory(output_directory):
 
 def _save_model(path, estimator):
     _create_output_directory("files/models/") 
-
-    with gzip.open(path, "wb") as f: 
+    with gzip.open(path, "wb") as f:  
         pickle.dump(estimator, f)  
         
-
-# Paso 6. Calcular las metricas de precisión
-def calculate_precision_metrics(dataset_type, y_true, y_pred):
+def calculate_metrics(dataset_type, y_true, y_pred):
     """Calculate metrics"""
     return {
         "type": "metrics",
@@ -222,8 +208,7 @@ def calculate_precision_metrics(dataset_type, y_true, y_pred):
         "f1_score": f1_score(y_true, y_pred, zero_division=0),
     }
     
-# Paso 7.Calcular las matrices de confusion
-def calculate_confusion_matrix(dataset_type, y_true, y_pred):
+def calculate_confusion(dataset_type, y_true, y_pred):
     """Confusion matrix"""
     cm = confusion_matrix(y_true, y_pred)
     return {
@@ -233,14 +218,13 @@ def calculate_confusion_matrix(dataset_type, y_true, y_pred):
         "true_1": {"predicted_0": int(cm[1][0]), "predicted_1": int(cm[1][1])},
     }
 
-#Paso final. Ejecutar
-def run():
+def modelo_lab12():
     data_train, data_test = load_data()
     data_train = clean_data(data_train)
     data_test = clean_data(data_test)
     x_train, y_train = split_data(data_train)
     x_test, y_test = split_data(data_test)
-    pipeline = create_pipeline(x_train)
+    pipeline = make_pipeline(x_train)
 
     estimator = create_estimator(pipeline)
     estimator.fit(x_train, y_train)
@@ -251,12 +235,12 @@ def run():
     )
 
     y_test_pred = estimator.predict(x_test)
-    test_precision_metrics = calculate_precision_metrics("test", y_test, y_test_pred)
+    test_precision_metrics = calculate_metrics("test", y_test, y_test_pred)
     y_train_pred = estimator.predict(x_train)
-    train_precision_metrics = calculate_precision_metrics("train", y_train, y_train_pred)
+    train_precision_metrics = calculate_metrics("train", y_train, y_train_pred)
 
-    test_confusion_metrics = calculate_confusion_matrix("test", y_test, y_test_pred)
-    train_confusion_metrics = calculate_confusion_matrix("train", y_train, y_train_pred)
+    test_confusion_metrics = calculate_confusion("test", y_test, y_test_pred)
+    train_confusion_metrics = calculate_confusion("train", y_train, y_train_pred)
 
     os.makedirs("files/output/", exist_ok=True)
 
@@ -265,3 +249,11 @@ def run():
         file.write(json.dumps(test_precision_metrics) + "\n")
         file.write(json.dumps(train_confusion_metrics) + "\n")
         file.write(json.dumps(test_confusion_metrics) + "\n")
+
+
+def _run_jobs():
+    modelo_lab12()
+
+
+if __name__ == "__main__":
+    _run_jobs()
